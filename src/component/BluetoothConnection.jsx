@@ -22,6 +22,7 @@ const BluetoothConnection = () => {
           { services: ["7eafd361-f150-4785-b307-47d34ed52c3c"] },
           { name: "UWAVE" },
         ],
+        optionalServices: ["00001800-0000-1000-8000-00805f9b34fb"],
       })
       .then((device) => {
         if (!deviceList.some((d) => d.id === device.id)) {
@@ -56,16 +57,36 @@ const BluetoothConnection = () => {
   const connectToDevice = (device, index) => {
     updateDeviceStatus(index, { connecting: true });
 
+    let deviceName = "";
+
     device.gatt
       .connect()
       .then((server) => {
+        setConnectedDevice(device);
+        return server.getPrimaryService("00001800-0000-1000-8000-00805f9b34fb");
+      })
+      .then((service) => {
+        return service.getCharacteristic(
+          "00002a00-0000-1000-8000-00805f9b34fb"
+        );
+      })
+      .then((characteristic) => {
+        return characteristic.readValue();
+      })
+      .then((value) => {
+        let decoder = new TextDecoder("utf-8");
+        deviceName = decoder.decode(value);
+        console.log("Device Name: ", deviceName);
+
         updateDeviceStatus(index, {
           connected: true,
           connecting: false,
-          name: device.name || "Unknown Device",
+          name: deviceName || "Unknown Device",
         });
-        setConnectedDevice(device);
-        return server.getPrimaryService("7eafd361-f150-4785-b307-47d34ed52c3c");
+
+        return device.gatt.getPrimaryService(
+          "7eafd361-f150-4785-b307-47d34ed52c3c"
+        );
       })
       .then((service) => {
         return service.getCharacteristic(
@@ -75,7 +96,7 @@ const BluetoothConnection = () => {
       .then((char) => {
         char.startNotifications().then(() => {
           char.addEventListener("characteristicvaluechanged", (event) =>
-            handleCharacteristicValueChanged(event, index)
+            handleCharacteristicValueChanged(event, index, deviceName)
           );
         });
       })
@@ -99,21 +120,28 @@ const BluetoothConnection = () => {
     }
   };
 
-  const handleCharacteristicValueChanged = (event, index) => {
+  const handleCharacteristicValueChanged = (event, index, deviceName) => {
     const value = event.target.value;
-    const measurementValue = parseMeasurement(value);
+    const measurementValue = parseMeasurement(value, deviceName);
     updateDeviceStatus(index, { measurement: measurementValue });
   };
 
-  const parseMeasurement = (value) => {
+  const parseMeasurement = (value, deviceName) => {
     const byte4 = value.getUint8(3);
     const byte5 = value.getUint8(4);
-    let measurementValue = (byte5 << 8) | byte4;
+    const byte6 = value.getUint8(5);
+    let measurementValue = (byte6 << 16) | (byte5 << 8) | byte4;
 
-    if (measurementValue & 0x8000) {
-      measurementValue -= 0x10000;
+    if (measurementValue & 0x800000) {
+      measurementValue -= 0x1000000;
     }
-    return measurementValue / 100;
+    let finalValue = measurementValue / 100;
+
+    if (deviceName.startsWith("07")) {
+      finalValue /= 10;
+      finalValue = parseFloat(finalValue.toFixed(3));
+    }
+    return finalValue;
   };
 
   return (
