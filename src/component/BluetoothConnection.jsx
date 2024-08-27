@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState } from 'react';
 
 const BluetoothConnection = () => {
   const [deviceList, setDeviceList] = useState([]);
@@ -7,29 +7,53 @@ const BluetoothConnection = () => {
   const addDevice = (device) => {
     const newDevice = {
       id: device.id,
-      name: device.name || "Unknown Device",
+      name: device.name || 'Unknown Device',
       device: device,
       connected: false,
       measurement: null,
+      batteryLevel: null, // Add battery level
     };
     setDeviceList((prevList) => [...prevList, newDevice]);
   };
+
+  // const handleOn = () => {
+  //   navigator.bluetooth
+  //     .requestDevice({
+  //       filters: [
+  //         { services: ['7eafd361-f150-4785-b307-47d34ed52c3c'] },
+  //         { name: 'UWAVE' },
+  //       ],
+  //       optionalServices: [
+  //         '00001800-0000-1000-8000-00805f9b34fb',
+  //         '0000180F-0000-1000-8000-00805f9b34fb',
+  //       ], // Add Battery Service
+  //     })
+  //     .then((device) => {
+  //       if (!deviceList.some((d) => d.id === device.id)) {
+  //         addDevice(device);
+  //       }
+  //     })
+  //     .catch((error) => console.log('Error: ', error));
+  // };
 
   const handleOn = () => {
     navigator.bluetooth
       .requestDevice({
         filters: [
-          { services: ["7eafd361-f150-4785-b307-47d34ed52c3c"] },
-          { name: "UWAVE" },
+          { services: ['7eafd361-f150-4785-b307-47d34ed52c3c'] }, // Sử dụng UUID đã được kiểm tra
+          { name: 'UWAVE' },
         ],
-        optionalServices: ["00001800-0000-1000-8000-00805f9b34fb"],
+        optionalServices: [
+          '00001800-0000-1000-8000-00805f9b34fb',
+          '0000180f-0000-1000-8000-00805f9b34fb', // Sửa thành chữ thường
+        ],
       })
       .then((device) => {
         if (!deviceList.some((d) => d.id === device.id)) {
           addDevice(device);
         }
       })
-      .catch((error) => console.log("Error: ", error));
+      .catch((error) => console.log('Error: ', error));
   };
 
   const handleOff = () => {
@@ -41,6 +65,7 @@ const BluetoothConnection = () => {
           ...device,
           connected: false,
           measurement: null,
+          batteryLevel: null, // Reset battery level
         }))
       );
     }
@@ -57,52 +82,71 @@ const BluetoothConnection = () => {
   const connectToDevice = (device, index) => {
     updateDeviceStatus(index, { connecting: true });
 
-    let deviceName = "";
+    let deviceName = '';
 
     device.gatt
       .connect()
       .then((server) => {
         setConnectedDevice(device);
-        return server.getPrimaryService("00001800-0000-1000-8000-00805f9b34fb");
+        return server.getPrimaryService('00001800-0000-1000-8000-00805f9b34fb');
       })
       .then((service) => {
         return service.getCharacteristic(
-          "00002a00-0000-1000-8000-00805f9b34fb"
+          '00002a00-0000-1000-8000-00805f9b34fb'
         );
       })
       .then((characteristic) => {
         return characteristic.readValue();
       })
       .then((value) => {
-        let decoder = new TextDecoder("utf-8");
+        let decoder = new TextDecoder('utf-8');
         deviceName = decoder.decode(value);
-        console.log("Device Name: ", deviceName);
+        console.log('Device Name: ', deviceName);
 
         updateDeviceStatus(index, {
           connected: true,
           connecting: false,
-          name: deviceName || "Unknown Device",
+          name: deviceName || 'Unknown Device',
         });
 
         return device.gatt.getPrimaryService(
-          "7eafd361-f150-4785-b307-47d34ed52c3c"
+          '7eafd361-f150-4785-b307-47d34ed52c3c'
         );
       })
       .then((service) => {
         return service.getCharacteristic(
-          "7eafd361-f151-4785-b307-47d34ed52c3c"
+          '7eafd361-f151-4785-b307-47d34ed52c3c'
         );
       })
       .then((char) => {
         char.startNotifications().then(() => {
-          char.addEventListener("characteristicvaluechanged", (event) =>
+          char.addEventListener('characteristicvaluechanged', (event) =>
             handleCharacteristicValueChanged(event, index, deviceName)
           );
         });
+        // Fetch battery level after connecting
+        // return device.gatt.getPrimaryService(
+        //   '0000180F-0000-1000-8000-00805f9b34fb'
+        // );
+        return device.gatt.getPrimaryService('battery_service');
+      })
+      .then((batteryService) => {
+        // return batteryService.getCharacteristic(
+        //   '00002a19-0000-1000-8000-00805f9b34fb'
+        // );
+        return batteryService.getCharacteristic('battery_level');
+      })
+      .then((batteryLevelCharacteristic) => {
+        return batteryLevelCharacteristic.readValue();
+      })
+      .then((batteryLevel) => {
+        const batteryPercentage = batteryLevel.getUint8(0);
+        console.log('Battery Level: ', batteryPercentage + '%');
+        updateDeviceStatus(index, { batteryLevel: batteryPercentage });
       })
       .catch((error) => {
         updateDeviceStatus(index, { connected: false, connecting: false });
-        console.log("Connection failed: ", error);
+        console.log('Connection failed: ', error);
       });
   };
 
@@ -137,7 +181,7 @@ const BluetoothConnection = () => {
     }
     let finalValue = measurementValue / 100;
 
-    if (deviceName.startsWith("07")) {
+    if (deviceName.startsWith('07')) {
       finalValue /= 10;
       finalValue = parseFloat(finalValue.toFixed(3));
     }
@@ -166,6 +210,7 @@ const BluetoothConnection = () => {
           <tr className="bg-gray-700 text-white">
             <th className="px-4 py-2 text-center">Device Name</th>
             <th className="px-4 py-2 text-center">Measurement</th>
+            <th className="px-4 py-2 text-center">Battery Level</th>
             <th className="px-4 py-2 text-center">Action</th>
           </tr>
         </thead>
@@ -174,7 +219,12 @@ const BluetoothConnection = () => {
             <tr key={device.id}>
               <td className="border px-4 py-2 text-center">{device.name}</td>
               <td className="border px-4 py-2 text-center">
-                {device.measurement !== null ? device.measurement : "N/A"}
+                {device.measurement !== null ? device.measurement : 'N/A'}
+              </td>
+              <td className="border px-4 py-2 text-center">
+                {device.batteryLevel !== null
+                  ? device.batteryLevel + '%'
+                  : 'N/A'}
               </td>
               <td className="border px-4 py-2 text-center">
                 {device.connected ? (
